@@ -48,73 +48,44 @@ tokenize = rights . joinTokens . fmap s2t
       (Right $ TAtom $ l ++ r) : t
     combine other lst = other : lst
 
-ppt :: [Token] -> String
-ppt = enclose . unwords . fmap t2s
-  where
-    t2s TLambda = "λ"
-    t2s TLParen = "("
-    t2s TRParen = ")"
-    t2s TDot = "."
-    t2s (TAtom str) = str
+data ParseResult i a = Parsed a i
+                     | ParseError String
+                     deriving (Functor, Show)
 
-data ParseResult a = Parsed a String
-                   | ParseError String
-                   deriving (Functor, Show)
+newtype Parser i a = Parser(i -> ParseResult i a)
+                     deriving Functor
 
-newtype Parser a = Parser(String -> ParseResult a)
-                   deriving Functor
+type TokenParser = Parser [Token]
 
-runParser :: Parser a -> String -> ParseResult a
+runParser :: Parser i a -> i -> ParseResult i a
 runParser (Parser f) s = f s
 
-instance Monad Parser where
+instance Monad (Parser i) where
   Parser f >>= g =
     Parser(\s -> case (f s) of
       ParseError error  -> ParseError error
       Parsed a s -> runParser (g a) s)
   return a = Parser(\s -> Parsed a s)
 
-instance Applicative Parser where
+instance Applicative (Parser i) where
   pure a = Parser(\s -> Parsed a s)
   (<*>) = ap
 
--- Insert shrug emoji
-canBeAtom :: Char -> Bool
-canBeAtom 'λ' = False
-canBeAtom '\\' = False
-canBeAtom '.' = False
-canBeAtom '(' = False
-canBeAtom ')' = False
-canBeAtom _ = True
+parseAtom :: TokenParser String
+parseAtom = Parser(impl)
+  where
+    impl (TAtom a:t) = Parsed a t
+    impl _ = ParseError "Not an atom."
 
-parseAtom :: Parser String
-parseAtom =
-  fmap reverse (Parser (\str ->
-    case str of
-      (h:t) | canBeAtom h -> Parsed [h] t
-      _ -> ParseError "Not an atom."))
-
-parseVar :: Parser Exp
+parseVar :: TokenParser Exp
 parseVar = do
   name <- parseAtom
   return (Var name)
 
-peek :: (Char -> Bool) -> Parser Bool
+peek :: (Token -> Bool) -> TokenParser Bool
 peek pred = Parser(impl) where
   impl [] = Parsed False []
-  impl str@(h:t) = Parsed (pred h) str
-
-failWith :: String -> Parser a
-failWith msg = Parser(impl) where
-  impl _ = ParseError msg
-
-ifM :: Monad m => m Bool -> m a -> m a -> m a
-ifM mc mt mf = do
-  c <- mc
-  t <- mt
-  f <- mf
-  if c then return t
-       else return f
+  impl lst@(h:t) = Parsed (pred h) lst
 
 condM :: Monad m => [(m Bool, m a)] -> m a
 condM [] = fail "Exhausted alternatives."
@@ -123,7 +94,17 @@ condM ((mc, mv) : t) = do
   if c then mv
        else condM t
 
-parseE :: Parser Exp
+consume :: (Eq a, Show a) => a -> Parser [a] ()
+consume expected = Parser(impl)
+  where
+    impl (h : t) | h == expected = Parsed () t
+    impl (wrong : _) =
+      ParseError ("Expected " ++ (show expected) ++
+                  " but found " ++ (show wrong))
+    impl [] =
+      ParseError ("Expected " ++ (show expected) ++ " but found end of input.")
+
+parseE :: TokenParser Exp
 parseE = do
   f <- parseF
   moreExps <- peek startsE
@@ -131,73 +112,49 @@ parseE = do
               else return f
   where
     parseF = condM [
-      (peek isLambda, parseLambda),
-      (peek isLeftParen, parseParens),
-      (peek (\x -> True), parseVar)]
-    isLambda c = c == 'λ' || c == '\\'
-    isLeftParen c = c == '('
-    startsE c = isAlphaNum c || c == '(' || c == '\\'
+      (peek ((==) TLambda), parseLambda),
+      (peek ((==) TLParen), parseParens),
+      (pure True, parseVar)]
+    startsE TLParen = True
+    startsE TLambda = True
+    startsE (TAtom _) = True
+    startsE _ = False
     parseLambda = do
-      _ <- consumeAnyChar ['λ', '\\']
+      _ <- consume TLambda
       x <- parseAtom
-      _ <- consumeChar '.'
+      _ <- consume TDot
       e <- parseE
       return (Lambda x e)
     parseParens = do
-      _ <- consumeChar '('
+      _ <- consume TLParen
       res <- parseE
-      _ <- consumeChar ')'
+      _ <- consume TRParen
       return res
-    consumeChar c = consumeAnyChar [c]
-    consumeAnyChar cs = Parser(\str ->
-      case str of
-        (h:t) | elem h cs -> Parsed () t
-              | otherwise ->
-                  ParseError ("Expected one of " ++ cs ++
-                              " but found " ++ [h])
-        _ -> ParseError ("Expected one of " ++ cs ++
-                         " but found end of input."))
 
-parse :: Parser Exp
+parse :: TokenParser Exp
 parse =
   Parser(\s ->
     case (runParser parseE s) of
       ParseError err -> ParseError err
-      p@(Parsed _ "") -> p
-      Parsed exp leftover -> ParseError ("Parsed " ++ (show exp) ++
-                                         " Leftover input: " ++ leftover))
+      p@(Parsed _ []) -> p
+      Parsed exp leftover ->
+        ParseError ("Parsed " ++ (show exp) ++
+                    " Leftover input: " ++ (show leftover)))
 
-ppResult :: ParseResult Exp -> String
-ppResult (Parsed e _) = pp e
-ppResult error = show error
+ppResult :: ParseResult a Exp -> String
+ppResult (Parsed expression _) = pp expression
+ppResult (ParseError err) = "Error: " ++ err
 
 ppExp :: String -> IO ()
-ppExp str =
-  let result = runParser parse str
-      prettyResult = ppResult result in
-      putStrLn prettyResult
+ppExp = putStrLn . ppResult . runParser parse . tokenize
 
 ppExps :: [String] -> IO ()
 ppExps strs = sequence_ $ fmap ppExp strs
-
-ppToken :: String -> IO ()
-ppToken = putStrLn . ppt . tokenize
-
-ppTokens :: [String] -> IO ()
-ppTokens strs = sequence_ $ fmap ppToken strs
 
 main :: IO ()
 main = do
   putStrLn "Parsy"
   ppExps [
-    "x",
-    "λx.λx.xy",
-    "λx.λy.λw.zy",
-    "λx.xx",
-    "(λx.+1x)4",
-    "λx.yx"]
-  putStrLn "Tins"
-  ppTokens [
     "x",
     "λx.λx.x y",
     "λx.λy.λw.z y",
