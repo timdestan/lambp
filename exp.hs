@@ -29,32 +29,38 @@ pp e = loop PPTop e
     ppApp es = unwords $ map (loop PPApp) es
     ppLambda x e = "λ" ++ x ++ "." ++ (loop PPLambdaBody e)
 
-data Token = TLambda | TLParen | TRParen | TDot | TAtom String | TBreak
+data Token = TLambda | TLParen | TRParen | TDot | TAtom String
              deriving (Eq, Show)
-type TokenizeResult = [Token]
+
+dropLefts :: [Either l r] -> [r]
+dropLefts = foldr combine []
+  where
+    combine (Right r) lst = r : lst
+    combine _ lst = lst
 
 tokenize :: String -> [Token]
-tokenize [] = []
-tokenize ('\\' : t) = TLambda : tokenize t
-tokenize ('λ' : t) = TLambda : tokenize t
-tokenize ('.' : t) = TDot : tokenize t
-tokenize ('(' : t) = TLParen : tokenize t
-tokenize (')' : t) = TRParen : tokenize t
-tokenize (ws : t) | isSpace ws = TBreak : tokenize t
-tokenize (other : t) =
-  case (tokenize t) of
-    TAtom str : t -> TAtom (other : str) : t
-    l -> TAtom ([other]) : l
+tokenize = dropLefts . joinTokens . fmap s2t
+  where
+    s2t '\\' = Right TLambda
+    s2t 'λ' = Right TLambda
+    s2t '.' = Right TDot
+    s2t '(' = Right TLParen
+    s2t ')' = Right TRParen
+    s2t ws | isSpace ws = Left ()
+    s2t other = Right (TAtom [other])
+    joinTokens = foldr combine []
+    combine (Right (TAtom l)) ((Right (TAtom r)): t) =
+      (Right $ TAtom $ l ++ r) : t
+    combine other lst = other : lst
 
 ppt :: [Token] -> String
-ppt = enclose . unwords . fmap t2s . filter ((/=) TBreak)
+ppt = enclose . unwords . fmap t2s
   where
     t2s TLambda = "λ"
     t2s TLParen = "("
     t2s TRParen = ")"
     t2s TDot = "."
     t2s (TAtom str) = str
-    t2s _ = fail "<whale>"
 
 data ParseResult a = Parsed a String
                    | ParseError String
