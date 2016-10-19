@@ -87,12 +87,12 @@ peek pred = Parser(impl) where
   impl [] = Parsed False []
   impl lst@(h:t) = Parsed (pred h) lst
 
-condM :: Monad m => [(m Bool, m a)] -> m a
-condM [] = fail "Exhausted alternatives."
-condM ((mc, mv) : t) = do
+condMOrElse :: Monad m => [(m Bool, m a)] -> m a -> m a
+condMOrElse [] fallback = fallback
+condMOrElse ((mc, mv) : t) fallback = do
   c <- mc
   if c then mv
-       else condM t
+       else condMOrElse t fallback
 
 consume :: (Eq a, Show a) => a -> Parser [a] ()
 consume expected = Parser(impl)
@@ -111,10 +111,9 @@ parseE = do
   if moreExps then (fmap (\e -> App [f,e]) parseE)
               else return f
   where
-    parseF = condM [
+    parseF = condMOrElse [
       (peek ((==) TLambda), parseLambda),
-      (peek ((==) TLParen), parseParens),
-      (pure True, parseVar)]
+      (peek ((==) TLParen), parseParens)] parseVar
     startsE TLParen = True
     startsE TLambda = True
     startsE (TAtom _) = True
