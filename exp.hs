@@ -7,6 +7,7 @@
 import Control.Applicative
 import Control.Monad (ap)
 import Data.Char (isAlphaNum, isSpace)
+import Data.Either (rights)
 
 data Exp = Var String
          | App [Exp]
@@ -32,14 +33,8 @@ pp e = loop PPTop e
 data Token = TLambda | TLParen | TRParen | TDot | TAtom String
              deriving (Eq, Show)
 
-dropLefts :: [Either l r] -> [r]
-dropLefts = foldr combine []
-  where
-    combine (Right r) lst = r : lst
-    combine _ lst = lst
-
 tokenize :: String -> [Token]
-tokenize = dropLefts . joinTokens . fmap s2t
+tokenize = rights . joinTokens . fmap s2t
   where
     s2t '\\' = Right TLambda
     s2t 'λ' = Right TLambda
