@@ -1,9 +1,12 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- Reminder to self: On Windows CMD, do chcp 65001 first,
+-- so we can have nice things.
+
 import Control.Applicative
 import Control.Monad (ap)
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, isSpace)
 
 data Exp = Var String
          | App [Exp]
@@ -11,6 +14,9 @@ data Exp = Var String
          deriving Show
 
 data PPContext = PPTop | PPApp | PPLambdaBody
+
+enclose :: String -> String
+enclose str = "(" ++ str ++ ")"
 
 pp :: Exp -> String
 pp e = loop PPTop e
@@ -22,7 +28,33 @@ pp e = loop PPTop e
     loop _ (Lambda x e) = ppLambda x e
     ppApp es = unwords $ map (loop PPApp) es
     ppLambda x e = "λ" ++ x ++ "." ++ (loop PPLambdaBody e)
-    enclose str = "(" ++ str ++ ")"
+
+data Token = TLambda | TLParen | TRParen | TDot | TAtom String | TBreak
+             deriving (Eq, Show)
+type TokenizeResult = [Token]
+
+tokenize :: String -> [Token]
+tokenize [] = []
+tokenize ('\\' : t) = TLambda : tokenize t
+tokenize ('λ' : t) = TLambda : tokenize t
+tokenize ('.' : t) = TDot : tokenize t
+tokenize ('(' : t) = TLParen : tokenize t
+tokenize (')' : t) = TRParen : tokenize t
+tokenize (ws : t) | isSpace ws = TBreak : tokenize t
+tokenize (other : t) =
+  case (tokenize t) of
+    TAtom str : t -> TAtom (other : str) : t
+    l -> TAtom ([other]) : l
+
+ppt :: [Token] -> String
+ppt = enclose . unwords . fmap t2s . filter ((/=) TBreak)
+  where
+    t2s TLambda = "λ"
+    t2s TLParen = "("
+    t2s TRParen = ")"
+    t2s TDot = "."
+    t2s (TAtom str) = str
+    t2s _ = fail "<whale>"
 
 data ParseResult a = Parsed a String
                    | ParseError String
@@ -140,15 +172,22 @@ ppResult error = show error
 
 ppExp :: String -> IO ()
 ppExp str =
-  let (result :: ParseResult Exp) = runParser parse str
-      (prettyResult :: String) = ppResult result in
+  let result = runParser parse str
+      prettyResult = ppResult result in
       putStrLn prettyResult
 
 ppExps :: [String] -> IO ()
 ppExps strs = sequence_ $ fmap ppExp strs
 
+ppToken :: String -> IO ()
+ppToken = putStrLn . ppt . tokenize
+
+ppTokens :: [String] -> IO ()
+ppTokens strs = sequence_ $ fmap ppToken strs
+
 main :: IO ()
 main = do
+  putStrLn "Parsy"
   ppExps [
     "x",
     "λx.λx.xy",
@@ -156,3 +195,11 @@ main = do
     "λx.xx",
     "(λx.+1x)4",
     "λx.yx"]
+  putStrLn "Tins"
+  ppTokens [
+    "x",
+    "λx.λx.x y",
+    "λx.λy.λw.z y",
+    "λone.one one",
+    "(λx.+ 1 x) 4",
+    "λx.y x"]
