@@ -108,9 +108,11 @@ parseE :: TokenParser Exp
 parseE = do
   f <- parseF
   moreExps <- peek startsE
-  if moreExps then (fmap (\e -> App [f,e]) parseE)
+  if moreExps then (fmap (buildApp f) parseE)
               else return f
   where
+    buildApp h (App l) = App (h : l)
+    buildApp h e = App [h,e]
     parseF = condMOrElse [
       (peek ((==) TLambda), parseLambda),
       (peek ((==) TLParen), parseParens)] parseVar
