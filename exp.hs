@@ -144,19 +144,16 @@ ppResult :: ParseResult a Exp -> String
 ppResult (Parsed expression _) = pp expression
 ppResult (ParseError err) = "Error: " ++ err
 
-ppExp :: String -> IO ()
-ppExp = putStrLn . ppResult . runParser parse . tokenize
-
-ppExps :: [String] -> IO ()
-ppExps strs = sequence_ $ fmap ppExp strs
+ppExp :: String -> String
+ppExp = ppResult . runParser parse . tokenize
 
 main :: IO ()
 main = do
-  putStrLn "Parsy"
-  ppExps [
-    "x",
-    "λx.λx.x y",
-    "λx.λy.λw.z y",
-    "λone.one one",
-    "(λx.+ 1 x) 4",
-    "λx.y x"]
+  -- TODO: ASCII art of a lambp.
+  putStrLn "Welcome to the lambp interpreter :3"
+  putStrLn "(Ctrl-C to exit)"
+  repl
+  where
+    repl = do
+      line <- getLine
+      putStrLn (ppExp line) >> repl
