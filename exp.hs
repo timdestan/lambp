@@ -104,15 +104,26 @@ consume expected = Parser(impl)
     impl [] =
       ParseError ("Expected " ++ (show expected) ++ " but found end of input.")
 
+-- E -> F E'
+-- E' -> F E' | ε
+-- F -> λ x . E | x | ( E )
+
 parseE :: TokenParser Exp
 parseE = do
   f <- parseF
-  moreExps <- peek startsE
-  if moreExps then (fmap (buildApp f) parseE)
-              else return f
+  es <- parseE'
+  case es of
+    [] -> return f
+    _ -> return $ App (f : es)
   where
-    buildApp h (App l) = App (h : l)
-    buildApp h e = App [h,e]
+    parseE' :: TokenParser [Exp]
+    parseE' = do
+      more <- peek startsE
+      if not more then return []
+      else do
+        f <- parseF
+        es <- parseE'
+        return $ f : es
     parseF = condMOrElse [
       (peek ((==) TLambda), parseLambda),
       (peek ((==) TLParen), parseParens)] parseVar
