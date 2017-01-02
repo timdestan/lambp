@@ -7,7 +7,7 @@
 import Control.Applicative
 import Control.Monad (ap)
 import Data.Char (isAlphaNum, isSpace)
-import Data.Either (rights)
+import Data.Maybe (catMaybes)
 
 data Exp = Var String
          | App [Exp]
@@ -34,18 +34,18 @@ data Token = TLambda | TLParen | TRParen | TDot | TAtom String
              deriving (Eq, Show)
 
 tokenize :: String -> [Token]
-tokenize = rights . joinTokens . fmap s2t
+tokenize = catMaybes . joinTokens . fmap s2t
   where
-    s2t '\\' = Right TLambda
-    s2t 'λ' = Right TLambda
-    s2t '.' = Right TDot
-    s2t '(' = Right TLParen
-    s2t ')' = Right TRParen
-    s2t ws | isSpace ws = Left ()
-    s2t other = Right (TAtom [other])
+    s2t '\\' = Just TLambda
+    s2t 'λ' = Just TLambda
+    s2t '.' = Just TDot
+    s2t '(' = Just TLParen
+    s2t ')' = Just TRParen
+    s2t ws | isSpace ws = Nothing
+    s2t other = Just (TAtom [other])
     joinTokens = foldr combine []
-    combine (Right (TAtom l)) ((Right (TAtom r)): t) =
-      (Right $ TAtom $ l ++ r) : t
+    combine (Just (TAtom l)) ((Just (TAtom r)): t) =
+      (Just $ TAtom $ l ++ r) : t
     combine other lst = other : lst
 
 data ParseResult i a = Parsed a i
